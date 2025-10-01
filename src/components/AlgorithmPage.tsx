@@ -19,7 +19,7 @@ const AlgorithmPage: React.FC = () => {
 
   // Generate new random array
   const generateData = () => {
-    if (status === "running") return;
+    if (status !== "idle") return;
     const newData = Array.from({ length: numElements }, () =>
       Math.floor(Math.random() * 100) + 1
     );
@@ -91,7 +91,7 @@ const AlgorithmPage: React.FC = () => {
           <button
             className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
             onClick={generateData}
-            disabled={status === "running"}
+            disabled={status !== "idle"}
           >
             Generate Data
           </button>
