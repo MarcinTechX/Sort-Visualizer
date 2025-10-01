@@ -24,6 +24,12 @@ const HomePage: React.FC = () => {
             >
               Selection Sort
             </Link>
+            <Link
+              to="/quick-sort"
+              className="block p-4 bg-blue-500 text-white rounded hover:bg-blue-600 text-center w-full text-xl font-semibold"
+            >
+              Quick Sort
+            </Link>            
           </li>
           </ul>
         </div>

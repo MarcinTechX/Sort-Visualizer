@@ -7,14 +7,17 @@ const AlgorithmPage: React.FC = () => {
   const location = useLocation();
   const isBubble = location.pathname.endsWith("bubble-sort");
   const isSelection = location.pathname.endsWith("selection-sort");
+  const isQuick = location.pathname.endsWith("quick-sort");
 
   const [numElements, setNumElements] = useState(20);
   const [speed, setSpeed] = useState(500);
   const [array, setArray] = useState<number[]>([]);
   const [originalArray, setOriginalArray] = useState<number[]>([]);
   const [status, setStatus] = useState<"idle" | "running" | "paused">("idle");
-  const [isSorted, setIsSorted] = useState(false);
+  const [resetSignal, setResetSignal] = useState(0);
+  const [finished, setFinished] = useState(false);
 
+  // Generate new random array
   const generateData = () => {
     if (status === "running") return;
     const newData = Array.from({ length: numElements }, () =>
@@ -23,43 +26,51 @@ const AlgorithmPage: React.FC = () => {
     setArray(newData);
     setOriginalArray(newData);
     setStatus("idle");
-    setIsSorted(false);
+    setFinished(false);
+    setResetSignal(prev => prev + 1);
   };
 
   const handleStart = () => {
-    if (array.length > 0) setStatus("running");
+    if (array.length > 0) {
+      setStatus("running");
+      setFinished(false);
+    }
   };
 
   const handlePause = () => setStatus("paused");
   const handleContinue = () => setStatus("running");
+
   const handleAbort = () => {
     setArray([...originalArray]);
     setStatus("idle");
-    setIsSorted(false);
+    setFinished(false);
+    setResetSignal(prev => prev + 1);
   };
 
   const handleRestart = () => {
     setArray([...originalArray]);
     setStatus("running");
-    setIsSorted(false);
+    setFinished(false);
+    setResetSignal(prev => prev + 1);
   };
 
-  const handleFinish = () => {
+  const handleFinish = (_finalArray: number[]) => {
     setStatus("idle");
-    setIsSorted(true);
+    setFinished(true);
   };
 
   return (
     <div className="h-dvh flex flex-col box-border">
       <Header />
-
       <div className="flex-1 flex flex-col overflow-auto">
         <div className="p-4 flex flex-col items-center">
           <div className="text-xl font-bold">Algorithm Visualizer</div>
           {isBubble && <div className="text-sm text-gray-600 mt-1">Bubble Sort</div>}
           {isSelection && <div className="text-sm text-gray-600 mt-1">Selection Sort</div>}
+          {isQuick && <div className="text-sm text-gray-600 mt-1">Quick Sort</div>}
         </div>
 
+        {/* Controls */}
         <div className="p-4 flex flex-col gap-4 bg-gray-100">
           <div className="flex flex-col">
             <label className="mb-1 text-gray-600">
@@ -77,7 +88,6 @@ const AlgorithmPage: React.FC = () => {
               disabled={status !== "idle"}
             />
           </div>
-
           <button
             className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
             onClick={generateData}
@@ -87,21 +97,22 @@ const AlgorithmPage: React.FC = () => {
           </button>
         </div>
 
+        {/* Visualizer */}
         <div className="flex-1 p-4 flex justify-center items-end min-h-[100px]">
           {array.length > 0 && (
-            <div className="w-full h-full flex items-end">
-              <AlgorithmVisualizer
-                array={array}
-                speed={speed}
-                start={status === "running"}
-                paused={status === "paused"}
-                algorithm={isBubble ? "bubble" : isSelection ? "selection" : undefined}
-                onFinish={handleFinish}
-              />
-            </div>
+            <AlgorithmVisualizer
+              array={array}
+              speed={speed}
+              start={status === "running"}
+              paused={status === "paused"}
+              algorithm={isBubble ? "bubble" : isSelection ? "selection" : isQuick ? "quick" : undefined}
+              onFinish={handleFinish}
+              resetSignal={resetSignal}
+            />
           )}
         </div>
 
+        {/* Animation speed & buttons */}
         {array.length > 0 && (
           <div className="p-4 flex flex-col gap-4 bg-gray-100">
             <div className="flex flex-col">
@@ -118,11 +129,12 @@ const AlgorithmPage: React.FC = () => {
               />
             </div>
 
+            {/* Buttons */}
             {status === "idle" && (
               <>
-                {!isSorted ? (
+                {!finished ? (
                   <button
-                    className="bg-green-500 text-white p-2 rounded hover:bg-green-600 disabled:opacity-50 cursor-pointer"
+                    className="bg-green-500 text-white p-2 rounded hover:bg-green-600 cursor-pointer"
                     onClick={handleStart}
                     disabled={array.length === 0}
                   >

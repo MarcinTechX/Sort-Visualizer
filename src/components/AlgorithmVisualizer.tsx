@@ -13,197 +13,232 @@ ChartJS.register(CategoryScale, LinearScale, BarElement);
 interface AlgorithmVisualizerProps {
   array: number[];
   speed: number;
-  algorithm?: "bubble" | "selection";
+  algorithm?: "bubble" | "selection" | "quick";
   start: boolean;
   paused?: boolean;
-  stop?: boolean;
-  onFinish?: () => void;
+  resetSignal?: number;
+  onFinish?: (finalArray: number[]) => void;
+}
+
+interface Step {
+  arr: number[];
+  active: number[];
+  sorted: number[];
+  low?: number;
+  high?: number;
+  pivot?: number;
+  iPtr?: number;
+  jPtr?: number;
 }
 
 const AlgorithmVisualizer: React.FC<AlgorithmVisualizerProps> = ({
   array,
   speed,
-  algorithm = "bubble",
+  algorithm = "",
   start,
   paused = false,
-  stop = false,
+  resetSignal,
   onFinish,
 }) => {
   const [data, setData] = useState<number[]>([...array]);
   const [activeIndices, setActiveIndices] = useState<number[]>([]);
   const [sortedIndices, setSortedIndices] = useState<number[]>([]);
+  const [finished, setFinished] = useState(false);
+  const [quickMeta, setQuickMeta] = useState<{
+    low?: number;
+    high?: number;
+    pivot?: number;
+    iPtr?: number;
+    jPtr?: number;
+  }>({});
+  const prevControlsRef = useRef({ start, paused, speed });
 
-  const iRef = useRef(0);
-  const jRef = useRef(0);
-  const minIndexRef = useRef(0);
-  const arrRef = useRef<number[]>([...array]);
-  const runningRef = useRef(false);
-  const pausedRef = useRef(paused);
-  const stopRef = useRef(stop);
-  const speedRef = useRef(speed);
+  const stepsRef = useRef<Step[]>([]);
+  const stepIndexRef = useRef(0);
   const timeoutRef = useRef<any>(null);
 
-  useEffect(() => {
-    pausedRef.current = paused;
-    if (paused && timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  }, [paused]);
+  // ---------------- Generate Steps ----------------
+  const generateSteps = (arr: number[]) => {
+    if (algorithm === "bubble") return generateBubbleSortSteps(arr);
+    if (algorithm === "selection") return generateSelectionSortSteps(arr);
+    if (algorithm === "quick") return generateQuickSortSteps(arr);
+    return [];
+  };
 
-  useEffect(() => {
-    stopRef.current = stop;
-    if (stop) {
-      runningRef.current = false;
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-      setData([...array]);
+  const generateBubbleSortSteps = (arr: number[]): Step[] => {
+    const steps: Step[] = [];
+    const a = [...arr];
+    const n = a.length;
+    const sortedSet: number[] = [];
+
+    for (let i = 0; i < n - 1; i++) {
+      for (let j = 0; j < n - i - 1; j++) {
+        steps.push({ arr: [...a], active: [j, j + 1], sorted: [...sortedSet] });
+        if (a[j] > a[j + 1]) {
+          [a[j], a[j + 1]] = [a[j + 1], a[j]];
+          steps.push({ arr: [...a], active: [j, j + 1], sorted: [...sortedSet] });
+        }
+      }
+      sortedSet.push(n - i - 1);
+    }
+
+    steps.push({ arr: [...a], active: [], sorted: a.map((_, i) => i) });
+    return steps;
+  };
+
+  const generateSelectionSortSteps = (arr: number[]): Step[] => {
+    const steps: Step[] = [];
+    const a = [...arr];
+    const n = a.length;
+    const sortedSet: number[] = [];
+
+    for (let i = 0; i < n - 1; i++) {
+      let minIdx = i;
+      for (let j = i + 1; j < n; j++) {
+        steps.push({ arr: [...a], active: [j, minIdx], sorted: [...sortedSet] });
+        if (a[j] < a[minIdx]) minIdx = j;
+      }
+      [a[i], a[minIdx]] = [a[minIdx], a[i]];
+      sortedSet.push(i);
+      steps.push({ arr: [...a], active: [i, minIdx], sorted: [...sortedSet] });
+    }
+
+    steps.push({ arr: [...a], active: [], sorted: a.map((_, i) => i) });
+    return steps;
+  };
+
+  const generateQuickSortSteps = (arr: number[]): Step[] => {
+    const steps: Step[] = [];
+    const a = [...arr];
+    const sortedSet: number[] = [];
+
+    const quickSort = (low: number, high: number) => {
+      if (low < high) {
+        const pivotIndex = partition(low, high);
+
+        sortedSet.push(pivotIndex);
+        steps.push({ arr: [...a], active: [], sorted: [...sortedSet], low, high, pivot: pivotIndex });
+        quickSort(low, pivotIndex - 1);
+        quickSort(pivotIndex + 1, high);
+      }
+    };
+
+    const partition = (low: number, high: number) => {
+      const mid = Math.floor((low + high) / 2);
+      const pivot = a[mid];
+      [a[mid], a[high]] = [a[high], a[mid]];
+      let i = low;
+
+      steps.push({ arr: [...a], active: [], sorted: [...sortedSet], low, high, pivot: high, iPtr: i, jPtr: low });
+
+      for (let j = low; j < high; j++) {
+        steps.push({ arr: [...a], active: [j, high], sorted: [...sortedSet], low, high, pivot: high, iPtr: i, jPtr: j });
+        if (a[j] < pivot) {
+          [a[i], a[j]] = [a[j], a[i]];
+          steps.push({ arr: [...a], active: [i, j], sorted: [...sortedSet], low, high, pivot: high, iPtr: i, jPtr: j });
+          i++;
+        }
+      }
+
+      [a[i], a[high]] = [a[high], a[i]];
+
+      steps.push({ arr: [...a], active: [i, high], sorted: [...sortedSet], low, high, pivot: i, iPtr: i, jPtr: high });
+      return i;
+    };
+
+    quickSort(0, a.length - 1);
+    steps.push({ arr: [...a], active: [], sorted: a.map((_, i) => i) });
+    return steps;
+  };
+
+  // ---------------- Play Steps ----------------
+  const scheduleNextStep = () => {
+    if (!start || paused) return;
+
+    if (stepIndexRef.current >= stepsRef.current.length) {
+      const lastStep = stepsRef.current[stepsRef.current.length - 1];
+      setData(lastStep.arr);
       setActiveIndices([]);
-      setSortedIndices([]);
-      iRef.current = 0;
-      jRef.current = 0;
-      minIndexRef.current = 0;
-      arrRef.current = [...array];
+      setSortedIndices(lastStep.arr.map((_, i) => i));
+      setFinished(true); 
+      setQuickMeta({});
+      if (onFinish) onFinish(lastStep.arr);
+      return;
     }
-  }, [stop, array]);
 
-  useEffect(() => {
-    speedRef.current = speed;
-  }, [speed]);
+    const step = stepsRef.current[stepIndexRef.current];
+    setData(step.arr);
+    setActiveIndices(step.active);
+    setSortedIndices(step.sorted);
 
+    if (algorithm === "quick") {
+      setQuickMeta({ low: step.low, high: step.high, pivot: step.pivot, iPtr: step.iPtr, jPtr: step.jPtr });
+    } else {
+      setQuickMeta({});
+    }
+    stepIndexRef.current++;
+
+    if (speed === 0) {
+      const finalStep = stepsRef.current[stepsRef.current.length - 1];
+      setData(finalStep.arr);
+      setActiveIndices([]);
+      setSortedIndices(finalStep.arr.map((_, i) => i));
+      setFinished(true);
+      setQuickMeta({});
+      if (onFinish) onFinish(finalStep.arr);
+    } else {
+      timeoutRef.current = setTimeout(scheduleNextStep, speed);
+    }
+  };
+
+  // ---------------- Reset / new array ----------------
   useEffect(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    stepsRef.current = generateSteps(array);
+    stepIndexRef.current = 0;
     setData([...array]);
     setActiveIndices([]);
     setSortedIndices([]);
-    iRef.current = 0;
-    jRef.current = 0;
-    minIndexRef.current = 0;
-    arrRef.current = [...array];
-    runningRef.current = false;
-  }, [array]);
+    setFinished(false);
+    setQuickMeta({});
+  }, [array, resetSignal]);
 
-  const isMounted = useRef(true);
+  // ---------------- Start / pause / speed ----------------
   useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    const prev = prevControlsRef.current;
+    const becameRunning = (!prev.start && start) || (prev.paused && !paused);
 
-  useEffect(() => {
-    if (!start || (algorithm !== "bubble" && algorithm !== "selection")) return;
-    if (stopRef.current) return;
+    if (!(start && !paused)) {
+      prevControlsRef.current = { start, paused, speed };
+      return;
+    }
 
-    runningRef.current = true;
+    setFinished(false);
 
-    const step = () => {
-      if (!runningRef.current || stopRef.current || !isMounted.current) return;
-
-      const arr = arrRef.current;
-
-      // ---------------- BUBBLE SORT ----------------
-      if (algorithm === "bubble") {
-        let i = iRef.current;
-        let j = jRef.current;
-
-        if (speedRef.current === 0) {
-          const n = arr.length;
-          for (let x = 0; x < n - 1; x++) {
-            for (let y = 0; y < n - x - 1; y++) {
-              if (arr[y] > arr[y + 1]) [arr[y], arr[y + 1]] = [arr[y + 1], arr[y]];
-            }
-          }
-          setData([...arr]);
-          setActiveIndices([]);
-          setSortedIndices(arr.map((_, idx) => idx));
-          runningRef.current = false;
-          if (onFinish) onFinish();
-          return;
-        }
-
-        if (i < arr.length - 1) {
-          if (j < arr.length - i - 1) {
-            setActiveIndices([j, j + 1]);
-            if (arr[j] > arr[j + 1]) {
-              [arr[j], arr[j + 1]] = [arr[j + 1], arr[j]];
-              setData([...arr]);
-            }
-            jRef.current++;
-          } else {
-            setSortedIndices((prev) => [...prev, arr.length - i - 1]);
-            iRef.current++;
-            jRef.current = 0;
-          }
-
-          arrRef.current = arr;
-
-          if (!pausedRef.current && !stopRef.current) {
-            timeoutRef.current = setTimeout(step, speedRef.current);
-          }
-        } else {
-          setSortedIndices(arr.map((_, idx) => idx));
-          setActiveIndices([]);
-          runningRef.current = false;
-          if (onFinish) onFinish();
-        }
+    if (speed === 0) {
+      const finalStep = stepsRef.current[stepsRef.current.length - 1];
+      if (finalStep) {
+        setData(finalStep.arr);
+        setActiveIndices([]);
+        setSortedIndices(finalStep.arr.map((_, i) => i));
+        setFinished(true);
+        if (onFinish) onFinish(finalStep.arr);
       }
+      prevControlsRef.current = { start, paused, speed };
+      return;
+    }
 
-      // ---------------- SELECTION SORT ----------------
-      if (algorithm === "selection") {
-        let i = iRef.current;
-        let j = jRef.current;
-        let minIndex = minIndexRef.current;
+    if (becameRunning) {
+      scheduleNextStep();
+    } else {
+      timeoutRef.current = setTimeout(scheduleNextStep, speed);
+    }
 
-        if (speedRef.current === 0) {
-          for (let x = i; x < arr.length - 1; x++) {
-            let minIdx = x;
-            for (let y = x + 1; y < arr.length; y++) {
-              if (arr[y] < arr[minIdx]) minIdx = y;
-            }
-            [arr[x], arr[minIdx]] = [arr[minIdx], arr[x]];
-          }
-          setData([...arr]);
-          setActiveIndices([]);
-          setSortedIndices(arr.map((_, idx) => idx));
-          runningRef.current = false;
-          if (onFinish) onFinish();
-          return;
-        }
+    prevControlsRef.current = { start, paused, speed };
+  }, [start, paused, speed]);
 
-        if (i < arr.length - 1) {
-          if (j < arr.length) {
-            setActiveIndices([j, minIndex]);
-            if (arr[j] < arr[minIndex]) minIndexRef.current = j;
-            jRef.current++;
-          } else {
-            setActiveIndices([minIndex]);
-            [arr[i], arr[minIndex]] = [arr[minIndex], arr[i]];
-            setData([...arr]);
-            setSortedIndices((prev) => [...prev, i]);
-            setActiveIndices([]);
-
-            iRef.current++;
-            minIndexRef.current = iRef.current;
-            jRef.current = iRef.current + 1;
-          }
-
-          arrRef.current = arr;
-
-          if (!pausedRef.current && !stopRef.current) {
-            timeoutRef.current = setTimeout(step, speedRef.current);
-          }
-        } else {
-          setSortedIndices(arr.map((_, idx) => idx));
-          setActiveIndices([]);
-          runningRef.current = false;
-          if (onFinish) onFinish();
-        }
-      }
-    };
-
-    step();
-  }, [start, algorithm]);
-
+  // ---------------- Chart ----------------
   const chartData: ChartData<"bar"> = {
     labels: data.map((_, i) => i + 1),
     datasets: [
@@ -211,9 +246,19 @@ const AlgorithmVisualizer: React.FC<AlgorithmVisualizerProps> = ({
         label: "Values",
         data,
         backgroundColor: data.map((_, i) => {
-          if (activeIndices.includes(i)) return "red";       
-          if (sortedIndices.includes(i)) return "green";    
-          return "blue";                                    
+          if (finished || sortedIndices.includes(i)) return "green";
+
+          if (algorithm === "quick" && quickMeta && typeof quickMeta.low === "number" && typeof quickMeta.high === "number") {
+            const inRange = i >= (quickMeta.low as number) && i <= (quickMeta.high as number);
+            if (i === quickMeta.pivot) return "orange";
+            if (i === quickMeta.iPtr) return "purple";
+            if (i === quickMeta.jPtr) return "red";
+            if (inRange) return "blue";
+            return "rgba(0, 0, 255, 0.2)"; 
+          }
+
+          if (activeIndices.includes(i)) return "red";
+          return "blue";
         }),
       },
     ],
@@ -222,10 +267,7 @@ const AlgorithmVisualizer: React.FC<AlgorithmVisualizerProps> = ({
   const chartOptions: ChartOptions<"bar"> = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: { enabled: false },
-    },
+    plugins: { legend: { display: false }, tooltip: { enabled: false } },
     scales: {
       x: { display: false, grid: { display: false } },
       y: { display: false, grid: { display: false } },

@@ -13,6 +13,7 @@ It allows you to see how different sorting algorithms work on a set of random nu
 ## Currently Implemented Algorithms
 - **Bubble Sort** 
 - **Selection Sort**
+- **Quick Sort**
 
 ---
 
@@ -21,9 +22,19 @@ It allows you to see how different sorting algorithms work on a set of random nu
 - Adjust the number of elements in the array.
 - Control animation speed (in ms).
 - Start, Pause, Continue, Restart, and Abort the animation.
+- Speed = 0 runs the algorithm instantly; Speed > 0 plays step-by-step.
+
 - Color indicators:
-  - 🔴 Red: currently compared elements
-  - 🟢 Green: elements that are already sorted
+  - General
+    - 🟢 Green: elements that are already sorted/final
+    - 🔴 Red: currently compared elements
+    - 🔵 Blue: default bars
+  - Quick Sort specifics (Lomuto-style partition visualization)
+    - 🟠 Orange: pivot (shown at the end of the current range during partition)
+    - 🟣 Purple: i pointer (boundary of the < pivot region)
+    - 🔴 Red: j pointer (current element being scanned)
+    - 🔵 Blue: active subarray [low..high]
+    - 🔵 Dim: bars outside the current subarray are dimmed
 
 ---
 
